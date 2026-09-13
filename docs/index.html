@@ -1,57 +1,198 @@
 <!DOCTYPE html>
-<html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>gradtape — live demo</title>
-<style>
-:root{--bg:#0d1117;--card:#161b22;--text:#e6edf3;--muted:#8b949e;--accent:#58a6ff}
-body{margin:0;background:var(--bg);color:var(--text);font-family:ui-sans-serif,system-ui,sans-serif}
-main{max-width:880px;margin:0 auto;padding:32px 18px}
-h1{margin:0 0 6px}.sub{color:var(--muted);margin-bottom:14px} a{color:var(--accent)}
-canvas{width:100%;max-width:640px;height:220px;background:var(--card);border:1px solid #30363d;border-radius:12px}
-button{margin-top:12px;background:#238636;border:0;color:#fff;padding:8px 14px;border-radius:8px;font-weight:600;cursor:pointer}
-pre{background:var(--card);border:1px solid #30363d;border-radius:10px;padding:12px;margin-top:12px}
-</style></head><body><main>
-<h1>gradtape</h1>
-<p class="sub">Reverse-mode autodiff tape · XOR MLP · <a href="https://github.com/SK090347/gradtape">GitHub</a></p>
-<button id="go">Train XOR (400 steps)</button>
-<canvas id="c" width="640" height="220"></canvas>
-<pre id="log">ready — click Train</pre>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>gradtape — XOR autodiff demo</title>
+  <meta name="description" content="Reverse-mode autodiff tape: train a tiny MLP on XOR and watch loss drop in the browser." />
+  <style>
+    :root {
+      --bg:#08060f; --panel:#141022; --text:#f0eaff; --muted:#a89bc4;
+      --accent:#c4b5fd; --ok:#34d399; --border:#2a2144;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin:0; min-height:100vh; color:var(--text);
+      font-family: Inter, "IBM Plex Sans", system-ui, sans-serif;
+      background:
+        radial-gradient(900px 480px at 85% -10%, #3b1d5c 0%, transparent 55%),
+        radial-gradient(700px 400px at 0% 10%, #1a2748 0%, transparent 50%),
+        var(--bg);
+    }
+    main { max-width: 980px; margin:0 auto; padding:2rem 1.2rem 4rem; }
+    .hero { display:flex; flex-wrap:wrap; justify-content:space-between; gap:1rem; align-items:flex-end; margin-bottom:1.1rem; }
+    h1 { margin:0 0 .35rem; font-size:clamp(1.6rem, 3.5vw, 2.2rem); letter-spacing:-.025em; }
+    h1 em { font-style:normal; color:var(--accent); }
+    .sub { margin:0; color:var(--muted); max-width:64ch; line-height:1.55; }
+    .actions { display:flex; gap:.5rem; flex-wrap:wrap; }
+    button, .linkbtn {
+      appearance:none; border:1px solid var(--border); background:#1c1630; color:var(--text);
+      border-radius:10px; padding:.55rem .95rem; font:inherit; font-weight:600; cursor:pointer; text-decoration:none;
+    }
+    button.primary { background:linear-gradient(135deg, #a78bfa, #f472b6); border:none; color:#120816; }
+    button:hover, .linkbtn:hover { filter:brightness(1.08); }
+    .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:10px; margin:1rem 0; }
+    .card {
+      background:rgba(20,16,34,.95); border:1px solid var(--border); border-radius:12px; padding:12px 14px;
+      font-family:var(--mono); font-size:.9rem;
+    }
+    .card .t { color:var(--muted); font-size:.72rem; margin-bottom:.3rem; letter-spacing:.04em; }
+    .card .v { font-size:1.3rem; color:var(--ok); font-weight:600; }
+    .panel {
+      background:rgba(20,16,34,.92); border:1px solid var(--border); border-radius:14px; padding:14px; margin-top:10px;
+    }
+    .panel h2 { margin:0 0 8px; font-size:.78rem; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); }
+    pre#log {
+      margin:0; background:#0a0814; border:1px solid var(--border); border-radius:10px;
+      padding:12px; font-family:var(--mono); font-size:.82rem; white-space:pre-wrap;
+      min-height:7rem; max-height:240px; overflow:auto; color:#dccfff;
+    }
+    canvas {
+      width:100%; max-width:100%; height:240px; background:#0a0814;
+      border:1px solid var(--border); border-radius:12px; display:block; margin-top:12px;
+    }
+    footer { margin-top:1.75rem; color:var(--muted); font-size:.85rem; }
+    a { color:var(--accent); }
+    code { background:#1c1630; padding:.1em .35em; border-radius:4px; }
+    .meta { color:var(--muted); font-size:.85rem; margin-top:8px; }
+  </style>
+</head>
+<body>
+<main>
+  <div class="hero">
+    <div>
+      <h1><em>gradtape</em> · XOR lab</h1>
+      <p class="sub">Reverse-mode autodiff on a scalar tape. A tiny MLP trains on XOR in your browser — loss should fall and preds approach <code>0, 1, 1, 0</code>.</p>
+    </div>
+    <div class="actions">
+      <a class="linkbtn" href="https://github.com/SK090347/gradtape" target="_blank" rel="noopener">GitHub</a>
+      <button class="primary" id="train" type="button">Train 500 epochs</button>
+      <button id="reset" type="button">Reset</button>
+    </div>
+  </div>
+  <div class="grid" id="preds"></div>
+  <div class="panel">
+    <h2>Training log</h2>
+    <pre id="log">booting…</pre>
+    <canvas id="chart" width="960" height="480" aria-label="XOR training loss"></canvas>
+    <p class="meta" id="meta">loss curve updates every 10 epochs</p>
+  </div>
+  <footer>MIT OR Apache-2.0 · <a href="https://github.com/SK090347">Sumit Kumar Ta</a> · <code>npm i && npm test && npm run demo</code></footer>
+</main>
 <script>
-class V{
-  constructor(d,ch=[],_op=''){this.data=d;this.grad=0;this.prev=ch;this._bw=()=>{}}
-  add(o){o=o instanceof V?o:new V(o);const out=new V(this.data+o.data,[this,o]);out._bw=()=>{this.grad+=out.grad;o.grad+=out.grad};return out}
-  mul(o){o=o instanceof V?o:new V(o);const out=new V(this.data*o.data,[this,o]);out._bw=()=>{this.grad+=o.data*out.grad;o.grad+=this.data*out.grad};return out}
-  tanh(){const t=Math.tanh(this.data),out=new V(t,[this]);out._bw=()=>{this.grad+=(1-t*t)*out.grad};return out}
-  backward(){const order=[];const seen=new Set();(function t(v){if(seen.has(v))return;seen.add(v);for(const p of v.prev)t(p);order.push(v)})(this);for(const v of order)v.grad=0;this.grad=1;for(let i=order.length-1;i>=0;i--)order[i]._bw()}
-}
-function train(){
-  const params=[]; const P=(x)=>{const v=new V(x);params.push(v);return v};
-  const W1=[[P(Math.random()*2-1),P(Math.random()*2-1)],[P(Math.random()*2-1),P(Math.random()*2-1)],[P(Math.random()*2-1),P(Math.random()*2-1)],[P(Math.random()*2-1),P(Math.random()*2-1)]];
-  const B1=[P(0),P(0),P(0),P(0)];
-  const W2=[P(Math.random()*2-1),P(Math.random()*2-1),P(Math.random()*2-1),P(Math.random()*2-1)];
-  const B2=P(0);
-  const forward=(x0,x1)=>{
-    const h=[];
-    for(let i=0;i<4;i++) h.push(W1[i][0].mul(x0).add(W1[i][1].mul(x1)).add(B1[i]).tanh());
-    let y=B2; for(let i=0;i<4;i++) y=y.add(W2[i].mul(h[i]));
-    return y.tanh();
-  };
-  const xs=[[0,0],[0,1],[1,0],[1,1]]; const ys=[0,1,1,0];
-  const losses=[]; let lr=0.15; let last='';
-  for(let ep=0;ep<400;ep++){
-    let loss=new V(0);
-    for(let i=0;i<4;i++){const pred=forward(xs[i][0],xs[i][1]); const d=pred.add(-ys[i]); loss=loss.add(d.mul(d));}
-    loss.backward();
-    for(const p of params){p.data -= lr*p.grad}
-    losses.push(loss.data);
-    if(ep%80===0) last+=`epoch ${ep}  loss ${loss.data.toFixed(4)}\n`;
+class Value {
+  constructor(data, parents, op) {
+    this.data = data; this.grad = 0; this.parents = parents || []; this._bw = function(){}; this.op = op || "";
   }
-  let preds='preds: ';
-  for(let i=0;i<4;i++){const p=forward(xs[i][0],xs[i][1]); preds+=`(${xs[i]})→${p.data.toFixed(2)}  `}
-  document.getElementById('log').textContent=last+preds;
-  const ctx=document.getElementById('c').getContext('2d');
-  ctx.clearRect(0,0,640,220); ctx.strokeStyle='#58a6ff'; ctx.beginPath();
-  const m=Math.max(...losses,1e-9);
-  losses.forEach((v,i)=>{const x=10+i/losses.length*620,y=210-(v/m)*190; i?ctx.lineTo(x,y):ctx.moveTo(x,y)}); ctx.stroke();
+  static of(n){ return new Value(n); }
+  add(o){ o=as(o); var out=new Value(this.data+o.data,[this,o],"+"); var self=this; out._bw=function(){self.grad+=out.grad;o.grad+=out.grad}; return out; }
+  mul(o){ o=as(o); var out=new Value(this.data*o.data,[this,o],"*"); var self=this; out._bw=function(){self.grad+=o.data*out.grad;o.grad+=self.data*out.grad}; return out; }
+  tanh(){ var t=Math.tanh(this.data); var out=new Value(t,[this],"tanh"); var self=this; out._bw=function(){self.grad+=(1-t*t)*out.grad}; return out; }
+  backward(){
+    var topo=[], seen=new Set();
+    (function build(v){ if(seen.has(v))return; seen.add(v); for(var i=0;i<v.parents.length;i++) build(v.parents[i]); topo.push(v); })(this);
+    for(var i=0;i<topo.length;i++) topo[i].grad=0;
+    this.grad=1;
+    for(var j=topo.length-1;j>=0;j--) topo[j]._bw();
+  }
 }
-document.getElementById('go').onclick=train;
-</script></main></body></html>
+function as(x){ return x instanceof Value ? x : Value.of(x); }
+function mse(pred, target){ var d=pred.add(-target); return d.mul(d); }
+function randn(){ var u=1-Math.random(), v=Math.random(); return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v); }
+function Neuron(nin){
+  this.w=Array.from({length:nin}, function(){ return Value.of(randn()*0.5); });
+  this.b=Value.of(0);
+}
+Neuron.prototype.forward=function(x){ var s=this.b; for(var i=0;i<this.w.length;i++) s=s.add(this.w[i].mul(x[i])); return s.tanh(); };
+Neuron.prototype.params=function(){ return this.w.concat([this.b]); };
+function Layer(nin,nout){ this.ns=Array.from({length:nout}, function(){ return new Neuron(nin); }); }
+Layer.prototype.forward=function(x){ return this.ns.map(function(n){ return n.forward(x); }); };
+Layer.prototype.params=function(){ return this.ns.flatMap(function(n){ return n.params(); }); };
+function MLP(nin, sizes){
+  var dims=[nin].concat(sizes); this.layers=[];
+  for(var i=0;i<sizes.length;i++) this.layers.push(new Layer(dims[i], dims[i+1]));
+}
+MLP.prototype.forward=function(x){ var h=x.map(Value.of); for(var i=0;i<this.layers.length;i++) h=this.layers[i].forward(h); return h; };
+MLP.prototype.params=function(){ return this.layers.flatMap(function(L){ return L.params(); }); };
+function sgd(params, lr){ for(var i=0;i<params.length;i++){ params[i].data -= lr*params[i].grad; } }
+
+var xor=[[[0,0],0],[[0,1],1],[[1,0],1],[[1,1],0]];
+var net=new MLP(2,[8,1]);
+var logEl=document.getElementById("log");
+var preds=document.getElementById("preds");
+var meta=document.getElementById("meta");
+var canvas=document.getElementById("chart");
+var ctx=canvas.getContext("2d");
+var losses=[];
+
+function showPreds(){
+  preds.innerHTML="";
+  for(var i=0;i<xor.length;i++){
+    var x=xor[i][0], y=xor[i][1];
+    var p=net.forward(x)[0].data;
+    var d=document.createElement("div"); d.className="card";
+    d.innerHTML='<div class="t">['+x.join(", ")+'] → want '+y+'</div><div class="v">'+p.toFixed(3)+'</div>';
+    preds.appendChild(d);
+  }
+}
+function draw(){
+  var w=canvas.width, h=canvas.height;
+  ctx.fillStyle="#0a0814"; ctx.fillRect(0,0,w,h);
+  // grid
+  ctx.strokeStyle="#1d1630"; ctx.lineWidth=1;
+  for(var g=0;g<5;g++){ var y=40+g*((h-60)/4); ctx.beginPath(); ctx.moveTo(40,y); ctx.lineTo(w-20,y); ctx.stroke(); }
+  if(losses.length<2){
+    ctx.fillStyle="#a89bc4"; ctx.font="22px ui-monospace"; ctx.fillText("loss will appear here", 48, h/2);
+    return;
+  }
+  var max=Math.max.apply(null, losses.concat([1e-6]));
+  // fill
+  var grad=ctx.createLinearGradient(0,0,0,h);
+  grad.addColorStop(0,"rgba(167,139,250,0.35)"); grad.addColorStop(1,"rgba(167,139,250,0)");
+  ctx.beginPath();
+  losses.forEach(function(L,i){
+    var x=40+i/(losses.length-1)*(w-60);
+    var y=h-30-(L/max)*(h-70);
+    if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+  });
+  ctx.lineTo(w-20, h-30); ctx.lineTo(40, h-30); ctx.closePath();
+  ctx.fillStyle=grad; ctx.fill();
+  ctx.strokeStyle="#c4b5fd"; ctx.lineWidth=3; ctx.beginPath();
+  losses.forEach(function(L,i){
+    var x=40+i/(losses.length-1)*(w-60);
+    var y=h-30-(L/max)*(h-70);
+    if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+  });
+  ctx.stroke();
+  ctx.fillStyle="#a89bc4"; ctx.font="20px ui-monospace";
+  ctx.fillText("loss  start="+losses[0].toFixed(3)+"  end="+losses[losses.length-1].toFixed(4), 48, 36);
+}
+function train(epochs){
+  epochs = epochs || 500;
+  var lines=[];
+  losses=[];
+  for(var ep=0; ep<epochs; ep++){
+    var loss=Value.of(0);
+    for(var i=0;i<xor.length;i++){ loss=loss.add(mse(net.forward(xor[i][0])[0], xor[i][1])); }
+    loss=loss.mul(1/xor.length);
+    loss.backward();
+    sgd(net.params(), 0.2);
+    if(ep%10===0 || ep===epochs-1){
+      losses.push(loss.data);
+      if(ep%50===0 || ep===epochs-1) lines.push("epoch "+ep+"  loss="+loss.data.toFixed(5));
+    }
+  }
+  logEl.textContent=lines.join("\n");
+  meta.textContent="trained "+epochs+" epochs · final loss "+losses[losses.length-1].toFixed(5);
+  showPreds(); draw();
+}
+document.getElementById("train").onclick=function(){ train(500); };
+document.getElementById("reset").onclick=function(){
+  net=new MLP(2,[8,1]); losses=[]; logEl.textContent="reset — training…"; showPreds(); draw(); train(500);
+};
+showPreds();
+train(500);
+</script>
+</body>
+</html>
