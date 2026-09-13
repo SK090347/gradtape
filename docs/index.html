@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>gradtape — XOR autodiff demo</title>
+  <meta name="description" content="Reverse-mode autodiff tape demo by Sumit Kumar Ta (SK090347)" />
+  <style>
+    :root {
+      --bg:#0b1020; --panel:#12182b; --text:#e8ecf7; --muted:#9aa3bd;
+      --accent:#c4b5fd; --ok:#34d399; --border:#2a3354;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin:0; min-height:100vh; color:var(--text);
+      font-family:"IBM Plex Sans", system-ui, sans-serif;
+      background: radial-gradient(1000px 500px at 80% -10%, #2a1a48, var(--bg));
+    }
+    main { max-width: 920px; margin:0 auto; padding:2rem 1.25rem 4rem; }
+    h1 { margin:0 0 .25rem; font-size:1.75rem; letter-spacing:-.02em; }
+    h1 span { color: var(--accent); }
+    .sub { color:var(--muted); margin:0 0 1.25rem; line-height:1.5; max-width:62ch; }
+    .row { display:flex; flex-wrap:wrap; gap:.6rem; margin-bottom:1rem; align-items:center; }
+    button {
+      background: linear-gradient(135deg, #a78bfa, #f472b6);
+      color:#120816; font-weight:600; border:none; border-radius:8px;
+      padding:.55rem 1rem; font:inherit; cursor:pointer;
+    }
+    button:hover { filter:brightness(1.06); }
+    .grid {
+      display:grid; grid-template-columns: repeat(auto-fit, minmax(140px,1fr));
+      gap:.75rem; margin:1rem 0;
+    }
+    .card {
+      background:var(--panel); border:1px solid var(--border); border-radius:12px;
+      padding:1rem; font-family:var(--mono); font-size:.9rem;
+    }
+    .card .t { color:var(--muted); font-size:.75rem; margin-bottom:.35rem; }
+    .card .v { font-size:1.25rem; color:var(--ok); }
+    pre#log {
+      background:#0a0f1c; border:1px solid var(--border); border-radius:12px;
+      padding:1rem; font-family:var(--mono); font-size:.82rem; white-space:pre-wrap;
+      min-height:8rem; max-height:280px; overflow:auto;
+    }
+    canvas { width:100%; max-width:420px; height:220px; background:#0a0f1c;
+      border:1px solid var(--border); border-radius:12px; display:block; margin-top:1rem; }
+    footer { margin-top:2rem; color:var(--muted); font-size:.85rem; }
+    a { color:var(--accent); }
+  </style>
+</head>
+<body>
+<main>
+  <h1><span>gradtape</span> · XOR lab</h1>
+  <p class="sub">
+    Reverse-mode autodiff on a scalar tape. Train a tiny MLP on XOR in the browser —
+    watch loss drop and predictions approach <code>0, 1, 1, 0</code>.
+    By <strong>Sumit Kumar Ta (SK090347)</strong>.
+  </p>
+  <div class="row">
+    <button id="train" type="button">Train 400 epochs</button>
+    <button id="reset" type="button" style="background:#1e293b;color:#e2e8f0;border:1px solid var(--border)">Reset</button>
+  </div>
+  <div class="grid" id="preds"></div>
+  <pre id="log">press Train to fit XOR</pre>
+  <canvas id="chart" width="840" height="440" aria-label="loss chart"></canvas>
+  <footer>
+    Source: <a href="https://github.com/SK090347/gradtape">SK090347/gradtape</a> · MIT OR Apache-2.0
+  </footer>
+</main>
+<script>
+// Minimal Value tape + 2-layer MLP for XOR demo
+class Value {
+  constructor(data, parents=[], op='') {
+    this.data=data; this.grad=0; this.parents=parents; this._bw=()=>{}; this.op=op;
+  }
+  static of(n){ return new Value(n); }
+  add(o){ o=as(o); const out=new Value(this.data+o.data,[this,o],'+'); out._bw=()=>{this.grad+=out.grad;o.grad+=out.grad}; return out; }
+  mul(o){ o=as(o); const out=new Value(this.data*o.data,[this,o],'*'); out._bw=()=>{this.grad+=o.data*out.grad;o.grad+=this.data*out.grad}; return out; }
+  tanh(){ const t=Math.tanh(this.data); const out=new Value(t,[this],'tanh'); out._bw=()=>{this.grad+=(1-t*t)*out.grad}; return out; }
+  backward(){
+    const topo=[]; const seen=new Set();
+    (function build(v){ if(seen.has(v))return; seen.add(v); for(const p of v.parents) build(p); topo.push(v); })(this);
+    for(const v of topo) v.grad=0;
+    this.grad=1;
+    for(let i=topo.length-1;i>=0;i--) topo[i]._bw();
+  }
+}
+function as(x){ return x instanceof Value ? x : Value.of(x); }
+function mse(pred, target){ const d=pred.add(-target); return d.mul(d); }
+class Neuron {
+  constructor(nin){
+    this.w=Array.from({length:nin},()=>Value.of(Math.random()*2-1));
+    this.b=Value.of(Math.random()*2-1);
+  }
+  forward(x){ let s=this.b; for(let i=0;i<this.w.length;i++) s=s.add(this.w[i].mul(x[i])); return s.tanh(); }
+  params(){ return [...this.w, this.b]; }
+}
+class Layer {
+  constructor(nin,nout){ this.ns=Array.from({length:nout},()=>new Neuron(nin)); }
+  forward(x){ return this.ns.map(n=>n.forward(x)); }
+  params(){ return this.ns.flatMap(n=>n.params()); }
+}
+class MLP {
+  constructor(nin, sizes){
+    const dims=[nin, ...sizes];
+    this.layers=sizes.map((_,i)=>new Layer(dims[i], dims[i+1]));
+  }
+  forward(x){ let h=x.map(Value.of); for(const L of this.layers) h=L.forward(h); return h; }
+  params(){ return this.layers.flatMap(L=>L.params()); }
+}
+function sgd(params, lr){ for(const p of params){ p.data -= lr*p.grad; p.grad=0; } }
+
+const xor=[[[0,0],0],[[0,1],1],[[1,0],1],[[1,1],0]];
+let net=new MLP(2,[8,1]);
+const logEl=document.getElementById('log');
+const preds=document.getElementById('preds');
+const canvas=document.getElementById('chart');
+const ctx=canvas.getContext('2d');
+let losses=[];
+
+function showPreds(){
+  preds.innerHTML='';
+  for(const [x,y] of xor){
+    const p=net.forward(x)[0].data;
+    const d=document.createElement('div'); d.className='card';
+    d.innerHTML=`<div class="t">${x.join(',')} → want ${y}</div><div class="v">${p.toFixed(3)}</div>`;
+    preds.appendChild(d);
+  }
+}
+function draw(){
+  const w=canvas.width, h=canvas.height;
+  ctx.fillStyle='#0a0f1c'; ctx.fillRect(0,0,w,h);
+  if(losses.length<2) return;
+  const max=Math.max(...losses, 1e-6);
+  ctx.strokeStyle='#a78bfa'; ctx.lineWidth=3; ctx.beginPath();
+  losses.forEach((L,i)=>{
+    const x=i/(losses.length-1)*(w-40)+20;
+    const y=h-20-(L/max)*(h-40);
+    if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+  });
+  ctx.stroke();
+  ctx.fillStyle='#9aa3bd'; ctx.font='20px ui-monospace';
+  ctx.fillText('loss', 24, 36);
+}
+function train(epochs=400){
+  const lines=[];
+  for(let ep=0; ep<epochs; ep++){
+    let loss=Value.of(0);
+    for(const [x,y] of xor){ loss=loss.add(mse(net.forward(x)[0], y)); }
+    loss=loss.mul(1/xor.length);
+    loss.backward();
+    sgd(net.params(), 0.25);
+    if(ep%20===0 || ep===epochs-1){ losses.push(loss.data); lines.push(`epoch ${ep}  loss=${loss.data.toFixed(5)}`); }
+  }
+  logEl.textContent=lines.join('\n');
+  showPreds(); draw();
+}
+document.getElementById('train').onclick=()=>train(400);
+document.getElementById('reset').onclick=()=>{ net=new MLP(2,[8,1]); losses=[]; logEl.textContent='reset — press Train'; showPreds(); draw(); };
+showPreds(); draw();
+</script>
+</body>
+</html>

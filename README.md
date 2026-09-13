@@ -1,5 +1,7 @@
 # gradtape
 
+
+**Live demo:** https://sk090347.github.io/gradtape/
 lab notes — reverse-mode autodiff on a scalar tape, in plain TypeScript.
 
 each `Value` holds `data`, `grad`, and the parents that produced it. calling `backward()` walks the graph in reverse topo order and piles up gradients. ops covered so far: `+ * ^ relu tanh exp log` (and `sub/div/neg` on top).
