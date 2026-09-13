@@ -1,0 +1,47 @@
+{
+  "name": "gradtape",
+  "version": "0.1.0",
+  "description": "Minimal reverse-mode autodiff tape in TypeScript",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "build": "tsc",
+    "lint": "tsc --noEmit",
+    "demo": "tsx src/demo.ts"
+  },
+  "keywords": [
+    "autodiff",
+    "reverse-mode",
+    "backpropagation",
+    "mlp",
+    "typescript"
+  ],
+  "author": "Sumit Kumar Ta <SK090347>",
+  "license": "MIT OR Apache-2.0",
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SK090347/gradtape.git"
+  },
+  "homepage": "https://github.com/SK090347/gradtape#readme",
+  "bugs": {
+    "url": "https://github.com/SK090347/gradtape/issues"
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "LICENSE-APACHE",
+    "NOTICE"
+  ],
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
